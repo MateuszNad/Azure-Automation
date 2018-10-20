@@ -16,46 +16,61 @@ function Create-Log {
     )
     return "$(Get-Date);$Message"
 }
-
-#$Credential = Add-AzureRmAccount 
-#Get-AzureRmAutomationAccount
+# W celu testowania skryptu lokalnie z stacji
+# Connect-AzureRmAccount | Out-Null
 
 $Conn = Get-AutomationConnection -Name AzureRunAsConnection
 Connect-AzureRmAccount -ServicePrincipal -Tenant $Conn.TenantID `
     -ApplicationID $Conn.ApplicationID -CertificateThumbprint $Conn.CertificateThumbprint | Out-Null
 
 # Pobranie listy maszyn VM
+$ErrorActionPreference = 'Stop'
 if ($NameVM) {
-    $VMs = Get-AzureRMVM -ResourceGroupName $ResourceGroupName -Name $NameVM -Status
-    Create-Log -Message "Get-AzureRMVM;$($VMs.Name);$ResourceGroupName;$($VMs.Statuses[1].DisplayStatus)"
+    try {
+        $VMs = Get-AzureRMVM -ResourceGroupName $ResourceGroupName -Name $NameVM -Status
+        Create-Log -Message "Get-AzureRMVM;$($VMs.Name);$ResourceGroupName;$($VMs.Statuses[1].DisplayStatus)"
+    }
+    catch {
+        Create-Log -Message "Get-AzureRMVM;$($_.Exception.Message)"
+        exit
+    }
 }
 else {
-    $VMs = Get-AzureRmVM -Status
-    $VMs | Foreach {
-        Create-Log -Message "Get-AzureRMVM;$($_.Name);$($_.PowerState)"
+    try {
+        $VMs = Get-AzureRmVM -Status
+        $VMs | ForEach-Object {
+            Create-Log -Message "Get-AzureRMVM;$($_.Name);$($_.PowerState)"
+        }
+    }
+    catch {
+        Create-Log -Message "Get-AzureRMVM;$($_.Exception.Message)"
+        exit
     }
 }
 
-# Wykonanie włączenie/wyłączenia
+# On/Off
+$ErrorActionPreference = 'Continue'
 if ($Action -eq 'Off') {
-    $VMs | Stop-AzureRmVM -Force -OutVariable StatusAction | Out-Null
-    Create-Log -Message "Stop-AzureRmVM;$($StatusAction.Status)" 
-
+    Foreach($VM in $VMs) {
+        $VM | Stop-AzureRmVM -Force -OutVariable StatusAction | Out-Null
+        Create-Log -Message "Stop-AzureRmVM;$($VM.Name);$($StatusAction.Status)" 
+    }
 }
 elseif ($Action -eq 'On') {
-    $VMs | Start-AzureRmVM -OutVariable StatusAction | Out-Null
-    Create-Log -Message "Start-AzureRmVM;$($StatusAction.Status)" 
+    Foreach($VM in $VMs) {
+        $VM | Start-AzureRmVM -OutVariable StatusAction | Out-Null
+        Create-Log -Message "Start-AzureRmVM;$($VM.Name);$($StatusAction.Status)" 
+    }
 }
 
-# Sprawdzenie stanu po akcji
+# Sprawdzenie stanu VM
 if ($NameVM) {
     $VMs = Get-AzureRMVM -ResourceGroupName $ResourceGroupName -Name $NameVM -Status
     Create-Log -Message "Get-AzureRMVM;$($VMs.Name);$ResourceGroupName;$($VMs.Statuses[1].DisplayStatus)"
 }
 else {
     $VMs = Get-AzureRmVM -Status
-    $VMs | Foreach {
+    $VMs | ForEach-Object {
         Create-Log -Message "Get-AzureRMVM;$($_.Name);$($_.PowerState)"
     }
 }
-
